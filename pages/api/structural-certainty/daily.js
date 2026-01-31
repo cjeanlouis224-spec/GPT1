@@ -78,7 +78,7 @@ export default async function handler(req, res) {
     }
 
     // INTERNAL API BASE (DO NOT CHANGE)
-    const base = "https://gpt-1-mu-five.vercel.app/api/cex";
+    const base = `https://${req.headers.host}/api/cex`;
 
     // Pull required raw data
     const chain = await fetchJSON(
