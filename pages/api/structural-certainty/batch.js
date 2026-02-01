@@ -82,9 +82,17 @@ function deriveConfidence({
    ========================= */
 
 export default async function handler(req, res) {
+    // Prevent caching (critical for live market data)
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   try {
-    const symbol = (req.query.symbol || "SPY").toUpperCase();
-
+    if (!symbolsParam || typeof symbolsParam !== "string") {
+  return res.status(400).json({
+    error: "Missing or invalid symbols parameter",
+    example: "?symbols=SPY,QQQ,IWM"
+  });
+}
     const data = await fetchJSON(
       `https://chartexchange.com/api/v1/data/options/chain-summary/?symbol=${symbol}`
     );
