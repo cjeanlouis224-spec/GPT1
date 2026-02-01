@@ -2,42 +2,32 @@
 
 async function fetchJSON(url) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`Fetch failed: ${url}`);
+  if (!r.ok) {
+    throw new Error(`Fetch failed: ${url}`);
+  }
   return r.json();
 }
 
-/* =========================
-   STRUCTURAL LOGIC
-========================= */
+/* ================================
+   CORE DERIVATION FUNCTIONS
+================================ */
 
-function deriveDirection({ shortVolRatio, shortInterestChange, borrowRate }) {
-  if (shortVolRatio > 0.55 && shortInterestChange >= 0 && borrowRate > 3)
-    return "DOWN";
-
-  if (shortVolRatio < 0.45 && shortInterestChange < 0)
-    return "UP";
-
+function deriveDirection({ shortVolRatio, shortInterestChange }) {
+  if (shortVolRatio > 0.55 && shortInterestChange > 0) return "DOWN";
+  if (shortVolRatio < 0.45 && shortInterestChange < 0) return "UP";
   return "NEUTRAL";
 }
 
-function deriveRegime({ shortVolRatio, borrowRate }) {
-  if (shortVolRatio > 0.55 && borrowRate > 3) return "BEAR_CONTROLLED";
-  if (shortVolRatio < 0.45 && borrowRate < 2) return "BULL_CONTROLLED";
-  return "TRANSITIONAL";
+function deriveRegime({ pcRatio }) {
+  if (pcRatio >= 2.0) return "BEAR_CONTROLLED";
+  if (pcRatio <= 0.7) return "BULL_CONTROLLED";
+  return "BALANCED";
 }
 
-function deriveDirectionGate(direction) {
-  if (direction === "DOWN") return "SHORT_BIAS_INTRADAY";
-  if (direction === "UP") return "LONG_BIAS_INTRADAY";
+function deriveExecutionMode(direction) {
+  if (direction === "DOWN") return "SHORT_SCALPS_FAVORED";
+  if (direction === "UP") return "LONG_SCALPS_FAVORED";
   return "MEAN_REVERSION_ONLY";
-}
-
-function deriveExecutionMode({ regime, direction }) {
-  if (regime === "BEAR_CONTROLLED" && direction === "DOWN")
-    return "SHORT_SCALPS_FAVORED";
-  if (regime === "BULL_CONTROLLED" && direction === "UP")
-    return "LONG_SCALPS_FAVORED";
-  return "SELECTIVE / REDUCED_SIZE";
 }
 
 function deriveAllowedTrades(direction) {
@@ -59,12 +49,14 @@ function deriveAllowedTrades(direction) {
     ];
   }
 
-return [
-  "Mean reversion only",
-  "Fade extremes into VWAP",
-  "Avoid trend continuation trades"
-];
-   function deriveConfidence({
+  return [
+    "Mean reversion only",
+    "Fade extremes into VWAP",
+    "Avoid trend continuation trades"
+  ];
+}
+
+function deriveConfidence({
   shortVolRatio,
   shortInterestChange,
   borrowRate,
@@ -72,146 +64,94 @@ return [
   direction
 }) {
   let score = 0;
-  ...
-}
 
-  // A) Short pressure (0–40)
-  if (shortVolRatio > 0.60) score += 40;
-  else if (shortVolRatio > 0.55) score += 30;
-  else if (shortVolRatio > 0.50) score += 20;
-  else score += 10;
-
-  // B) Borrow stress (0–30)
-  if (borrowRate >= 5) score += 30;
-  else if (borrowRate >= 3) score += 20;
-  else if (borrowRate >= 1) score += 10;
-  else score += 5;
-
-  // C) Interest trend (0–20)
+  // Short pressure (0–40)
+  if (shortVolRatio > 0.6) score += 20;
   if (shortInterestChange > 0) score += 20;
-  else if (shortInterestChange === 0) score += 10;
-  else score += 5;
 
-  // D) Regime alignment (0–10)
-  const aligned =
-    (regime === "BEAR_CONTROLLED" && direction === "DOWN") ||
-    (regime === "BULL_CONTROLLED" && direction === "UP");
+  // Borrow stress (0–20)
+  if (borrowRate > 5) score += 10;
+  if (borrowRate > 10) score += 10;
 
-  if (aligned) score += 10;
+  // Structural alignment (0–40)
+  if (regime === "BEAR_CONTROLLED" && direction === "DOWN") score += 40;
+  if (regime === "BULL_CONTROLLED" && direction === "UP") score += 40;
 
-  return score;
-}
-
-function confidenceBand(score) {
   if (score >= 80) return "HIGH";
-  if (score >= 60) return "MEDIUM";
-  if (score >= 40) return "LOW";
-  return "VERY_LOW";
-}
-  ];
+  if (score >= 50) return "MEDIUM";
+  return "LOW";
 }
 
-/* =========================
-   SYMBOL EVALUATION
-========================= */
-
-async function evaluateSymbol(symbol, base) {
-  const [
-    shortVol,
-    shortInterest,
-    borrow
-  ] = await Promise.all([
-    fetchJSON(`${base}/short-volume?symbol=${symbol}`),
-    fetchJSON(`${base}/short-interest-daily?symbol=${symbol}`),
-    fetchJSON(`${base}/borrow-fee?symbol=${symbol}`)
-  ]);
-
-  const shortVolRatio =
-    shortVol?.short_volume_ratio ??
-    shortVol?.shortVolumeRatio ??
-    0.5;
-
-  const shortInterestChange =
-    shortInterest?.change ??
-    shortInterest?.change_pct ??
-    0;
-
-  const borrowRate =
-    borrow?.rate ??
-    borrow?.borrow_rate ??
-    0;
-
-  const direction = deriveDirection({
-    shortVolRatio,
-    shortInterestChange,
-    borrowRate
-  });
-
-  const regime = deriveRegime({
-    shortVolRatio,
-    borrowRate
-  });
-
-  return {
-    symbol,
-    A_regime: {
-      regime,
-      direction,
-      shortVolRatio,
-      shortInterestChange,
-      borrowRate
-   confidence: {
-  score: confidenceScore,
-  band: confidence
-},
-    B_direction_gate: deriveDirectionGate(direction),
-    C_execution_mode: deriveExecutionMode({ regime, direction }),
-    D_allowed_trades: deriveAllowedTrades(direction),
-    summary: {
-      structural_direction: direction,
-      primary_risk:
-        direction === "DOWN"
-          ? "Sharp bear-market rallies squeezing shorts"
-          : direction === "UP"
-          ? "Fast downside reversals after long positioning"
-          : "False breakouts in low-certainty regime"
-
-const confidenceScore = deriveConfidence({
-  shortVolRatio,
-  shortInterestChange,
-  borrowRate,
-  regime,
-  direction
-});
-
-const confidence = confidenceBand(confidenceScore);
-    }
-  };
-}
-
-/* =========================
+/* ================================
    API HANDLER
-========================= */
+================================ */
 
 export default async function handler(req, res) {
   try {
-    const base = `https://${req.headers.host}/api/cex`;
+    const symbolsParam = req.query.symbols;
+    if (!symbolsParam) {
+      return res.status(400).json({ error: "Missing symbols param" });
+    }
 
-    const symbols = ["SPY", "QQQ", "IWM"];
+    const symbols = symbolsParam.split(",").map(s => s.trim().toUpperCase());
 
-    const results = await Promise.all(
-      symbols.map(sym => evaluateSymbol(sym, base))
-    );
+    const base =
+      req.headers.origin ||
+      `https://${req.headers.host}`;
+
+    const results = [];
+
+    for (const symbol of symbols) {
+      const [
+        chain,
+        shortVol,
+        shortInterest,
+        borrow
+      ] = await Promise.all([
+        fetchJSON(`${base}/api/cex/chain-summary?symbol=${symbol}`),
+        fetchJSON(`${base}/api/cex/short-volume?symbol=${symbol}`),
+        fetchJSON(`${base}/api/cex/short-interest-daily?symbol=${symbol}`),
+        fetchJSON(`${base}/api/cex/borrow-fee?symbol=${symbol}`)
+      ]);
+
+      const pcRatio = chain?.pc_ratio ?? 1;
+      const shortVolRatio = shortVol?.short_volume_ratio ?? 0.5;
+      const shortInterestChange = shortInterest?.change ?? 0;
+      const borrowRate = borrow?.borrow_rate ?? 0;
+
+      const regime = deriveRegime({ pcRatio });
+      const direction = deriveDirection({ shortVolRatio, shortInterestChange });
+      const executionMode = deriveExecutionMode(direction);
+      const allowedTrades = deriveAllowedTrades(direction);
+      const confidence = deriveConfidence({
+        shortVolRatio,
+        shortInterestChange,
+        borrowRate,
+        regime,
+        direction
+      });
+
+      results.push({
+        symbol,
+        A_regime: {
+          regime,
+          pcRatio
+        },
+        B_direction_gate: direction,
+        C_execution_mode: executionMode,
+        D_allowed_trades: allowedTrades,
+        confidence
+      });
+    }
 
     res.status(200).json({
       date: new Date().toISOString().slice(0, 10),
-      marketStatus: "closed",
+      marketStatus: "OPEN_OR_RECENT",
       results
     });
-
   } catch (err) {
     res.status(500).json({
-      error: "Structural Certainty batch failed",
+      error: "Structural Certainty failed",
       detail: err.message
     });
   }
