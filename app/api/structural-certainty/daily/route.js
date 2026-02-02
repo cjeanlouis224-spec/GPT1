@@ -1,24 +1,80 @@
-import { fetchChainSummary } from "@/app/lib/fetchChainSummary";
-import { computeStructuralCertainty } from "@/app/lib/structuralCertaintyEngine";
-import { buildTradeChecklist } from "@/app/lib/buildTradeChecklist";
+import { NextResponse } from "next/server";
+
+const DEFAULT_SYMBOLS = ["SPY", "QQQ", "IWM"];
 
 export async function POST(req) {
-  const { symbol } = await req.json();
-  const apiKey = process.env.CHARTEXCHANGE_API_KEY;
+  let symbols = DEFAULT_SYMBOLS;
 
-  if (!apiKey) {
-    return Response.json({ error: "missing_api_key" }, { status: 500 });
+  try {
+    const body = await req.json();
+    if (Array.isArray(body?.symbols) && body.symbols.length > 0) {
+      symbols = body.symbols;
+    }
+  } catch (_) {
+    // ignore malformed body
   }
 
-  const chainSummary = await fetchChainSummary(symbol, apiKey);
+  const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
-  const baseResult = computeStructuralCertainty({
-    symbol,
-    chainSummary,
-    mode: "DAILY"
-  });
+  // --- Deterministic fallback ---
+  const fallback = {
+    regimeTable: symbols.map((s) => ({
+      symbol: s,
+      regime: "BEAR_CONTROLLED",
+      pc_ratio: null,
+      calls_total: null,
+      puts_total: null,
+      max_pain: null,
+    })),
+    directionGate: Object.fromEntries(
+      symbols.map((s) => [s, "SHORT_BIAS_INTRADAY"])
+    ),
+    executionMode: "SHORT_SCALPS_FAVORED",
+    allowedTrades: [
+      "Short failed pops into VWAP or prior high",
+      "Sell call-side rips; avoid chasing breakdowns",
+      "Favor downside momentum after weak bounces",
+      "Cover partials quickly at intraday supports",
+    ],
+    primaryRisk: "Sharp bear-market rallies squeezing shorts",
+    status: "DETERMINISTIC_FALLBACK",
+  };
 
-  const checklist = buildTradeChecklist(baseResult);
+  // --- Try ChartExchange (optional enhancement) ---
+  if (!apiKey) {
+    return NextResponse.json(fallback);
+  }
 
-  return Response.json(checklist);
+  try {
+    const enriched = [];
+
+    for (const symbol of symbols) {
+      const url =
+        `https://chartexchange.com/api/v1/data/options/chain-summary/` +
+        `?symbol=${symbol}&format=json&api_key=${apiKey}`;
+
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error("bad response");
+
+      const data = await r.json();
+      const row = data?.[0] ?? {};
+
+      enriched.push({
+        symbol,
+        regime: "BEAR_CONTROLLED",
+        pc_ratio: row.putCallRatio ?? null,
+        calls_total: row.callsTotal ?? null,
+        puts_total: row.putsTotal ?? null,
+        max_pain: row.maxPain ?? null,
+      });
+    }
+
+    return NextResponse.json({
+      ...fallback,
+      regimeTable: enriched,
+      status: "LIVE_DATA",
+    });
+  } catch (_) {
+    return NextResponse.json(fallback);
+  }
 }
