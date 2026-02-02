@@ -1,116 +1,81 @@
-openapi: 3.1.0
+openapi: 3.0.1
 info:
   title: Structural Certainty API
-  description: >
-    Backend API for Structural Certainty GPT.
-    Returns raw, observable market structure data only.
-    No inference, prediction, ranking, or confidence calculation is performed.
-  version: "1.0.0"
+  version: "1.0"
 
 servers:
   - url: https://gpt-1-mu.vercel.app
 
 paths:
-  /api/structural-certainty/batch:
+  /api/structural-certainty/daily:
     post:
-      operationId: getStructuralCertaintyBatch
-      summary: Fetch daily structural certainty data for symbols
+      summary: Daily structural certainty
+      operationId: dailyCertainty
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - symbols
-              properties:
-                symbols:
-                  type: array
-                  minItems: 1
-                  items:
-                    type: string
-                  description: Array of equity, ETF, or index tickers
+              $ref: "#/components/schemas/SymbolRequest"
       responses:
         "200":
-          description: Daily structural certainty data
+          description: Daily regime and bias
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - mode
-                  - results
-                properties:
-                  mode:
-                    type: string
-                    enum: [daily]
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      required:
-                        - symbol
-                      properties:
-                        symbol:
-                          type: string
-                        chain_summary:
-                          type: object
-                          additionalProperties: true
-                        error:
-                          type: string
-        "400":
-          description: Invalid request
-        "503":
-          description: Data unavailable
+                $ref: "#/components/schemas/CertaintyResponse"
 
   /api/structural-certainty/swingscanner:
     post:
-      operationId: swingScanner
-      summary: Fetch swing scanner structural data for symbols
+      summary: Swing permission check
+      operationId: swingCertainty
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - symbols
-              properties:
-                symbols:
-                  type: array
-                  minItems: 1
-                  items:
-                    type: string
-                  description: Array of equity, ETF, or index tickers
+              $ref: "#/components/schemas/SymbolRequest"
       responses:
         "200":
-          description: Swing scanner structural data
+          description: Swing eligibility
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - mode
-                  - results
-                properties:
-                  mode:
-                    type: string
-                    enum: [swing]
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      required:
-                        - symbol
-                      properties:
-                        symbol:
-                          type: string
-                        chain_summary:
-                          type: object
-                          additionalProperties: true
-                        error:
-                          type: string
-        "400":
-          description: Invalid request
-        "503":
-          description: Data unavailable
+                $ref: "#/components/schemas/CertaintyResponse"
+
+components:
+  schemas:
+    SymbolRequest:
+      type: object
+      required: [symbol]
+      properties:
+        symbol:
+          type: string
+          example: IWM
+
+    CertaintyResponse:
+      type: object
+      properties:
+        symbol:
+          type: string
+        mode:
+          type: string
+          enum: [DAILY, SWING]
+        regime:
+          type: string
+          enum: [BULL_CONTROLLED, BEAR_CONTROLLED, NEUTRAL]
+        direction:
+          type: string
+          enum: [LONG_BIAS, SHORT_BIAS, NO_TRADE]
+        pc_ratio:
+          type: number
+        calls_total:
+          type: number
+        puts_total:
+          type: number
+        max_pain:
+          type: number
+        allowed:
+          type: boolean
+        reason:
+          type: string
