@@ -10,71 +10,79 @@ export async function POST(req) {
     if (Array.isArray(body?.symbols) && body.symbols.length > 0) {
       symbols = body.symbols;
     }
-  } catch (_) {
-    // ignore malformed body
-  }
+  } catch (_) {}
 
   const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
-  // --- Deterministic fallback ---
-  const fallback = {
-    regimeTable: symbols.map((s) => ({
-      symbol: s,
-      regime: "BEAR_CONTROLLED",
-      pc_ratio: null,
-      calls_total: null,
-      puts_total: null,
-      max_pain: null,
-    })),
-    directionGate: Object.fromEntries(
-      symbols.map((s) => [s, "SHORT_BIAS_INTRADAY"])
-    ),
-    executionMode: "SHORT_SCALPS_FAVORED",
-    allowedTrades: [
-      "Short failed pops into VWAP or prior high",
-      "Sell call-side rips; avoid chasing breakdowns",
-      "Favor downside momentum after weak bounces",
-      "Cover partials quickly at intraday supports",
-    ],
-    primaryRisk: "Sharp bear-market rallies squeezing shorts",
-    status: "DETERMINISTIC_FALLBACK",
+  // ─────────────────────────────────────────────
+  // SAFE BASE RESPONSE (NO BIAS, NO DIRECTION)
+  // ─────────────────────────────────────────────
+  const baseResponse = {
+    stressMap: {
+      stress_side: "NEUTRAL",
+      stress_location: "STRADDLED",
+      distance_to_stress: "FAR",
+      authority: "LOW",
+    },
+    openResolution: {
+      open_state: "UNRESOLVED",
+      interaction_with_stress: "NO",
+      early_volatility: "NORMAL",
+    },
+    riskPermission: {
+      permission: "BLOCK",
+      size_cap: "MINIMAL",
+      hold_cap: "OPEN_ONLY",
+      blocked_behaviors: ["REVERSAL", "FADE", "HOLD"],
+    },
+    executionGate: {
+      daily_alignment: "UNKNOWN",
+      checklist_complete: "NO",
+      allowed_setups: [],
+      primary_risk: "Insufficient structural data",
+      final_instruction: "NO_TRADE",
+    },
   };
 
-  // --- Try ChartExchange (optional enhancement) ---
+  // If no API key → hard NO_TRADE
   if (!apiKey) {
-    return NextResponse.json(fallback);
+    return NextResponse.json(baseResponse);
   }
 
   try {
-    const enriched = [];
-
+    // Attempt to enrich Tool 1 ONLY (stress, not bias)
     for (const symbol of symbols) {
       const url =
         `https://chartexchange.com/api/v1/data/options/chain-summary/` +
         `?symbol=${symbol}&format=json&api_key=${apiKey}`;
 
       const r = await fetch(url, { cache: "no-store" });
-      if (!r.ok) throw new Error("bad response");
+      if (!r.ok) continue;
 
       const data = await r.json();
-      const row = data?.[0] ?? {};
+      const row = data?.[0];
+      if (!row) continue;
 
-      enriched.push({
-        symbol,
-        regime: "BEAR_CONTROLLED",
-        pc_ratio: row.putCallRatio ?? null,
-        calls_total: row.callsTotal ?? null,
-        puts_total: row.putsTotal ?? null,
-        max_pain: row.maxPain ?? null,
-      });
+      // Minimal stress inference (still non-directional)
+      baseResponse.stressMap = {
+        stress_side:
+          row.putsTotal > row.callsTotal
+            ? "PUT"
+            : row.callsTotal > row.putsTotal
+            ? "CALL"
+            : "NEUTRAL",
+        stress_location: "STRADDLED",
+        distance_to_stress: "MID",
+        authority: "HIGH",
+      };
+
+      baseResponse.executionGate.primary_risk =
+        "Stress detected but no open resolution yet";
     }
 
-    return NextResponse.json({
-      ...fallback,
-      regimeTable: enriched,
-      status: "LIVE_DATA",
-    });
-  } catch (_) {
-    return NextResponse.json(fallback);
+    return NextResponse.json(baseResponse);
+  } catch (err) {
+    // Any failure → NO_TRADE
+    return NextResponse.json(baseResponse);
   }
 }
