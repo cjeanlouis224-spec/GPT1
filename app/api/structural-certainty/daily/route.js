@@ -1,5 +1,6 @@
 import { fetchChainSummary } from "@/app/lib/fetchChainSummary";
 import { computeStructuralCertainty } from "@/app/lib/structuralCertaintyEngine";
+import { buildTradeChecklist } from "@/app/lib/buildTradeChecklist";
 
 export async function POST(req) {
   const { symbol } = await req.json();
@@ -11,11 +12,13 @@ export async function POST(req) {
 
   const chainSummary = await fetchChainSummary(symbol, apiKey);
 
-  const result = computeStructuralCertainty({
+  const baseResult = computeStructuralCertainty({
     symbol,
     chainSummary,
     mode: "DAILY"
   });
 
-  return Response.json(result);
+  const checklist = buildTradeChecklist(baseResult);
+
+  return Response.json(checklist);
 }
