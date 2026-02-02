@@ -1,35 +1,27 @@
+import { fetchChainSummary } from "@/app/lib/fetchChainSummary";
+import { computeStructuralCertainty } from "@/app/lib/structuralCertaintyEngine";
+
 export async function POST(req) {
   const { symbol } = await req.json();
-
   const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
   if (!apiKey) {
     return Response.json({ error: "missing_api_key" }, { status: 500 });
   }
 
-const url =
-  `https://chartexchange.com/api/v1/data/options/chain/` +
-  `?symbol=${symbol}&format=json&api_key=${apiKey}`;
-  const r = await fetch(url, { cache: "no-store" });
-  const text = await r.text();
+  const chainSummary = await fetchChainSummary(symbol, apiKey);
 
-  return Response.json({
-    status: r.status,
-    raw: text.slice(0, 500)
+  const result = computeStructuralCertainty({
+    symbol,
+    chainSummary,
+    mode: "SWING"
   });
-}
 
-    const data = await r.json();
-
-    return NextResponse.json({
-      symbol,
-      chainSummary: data
-    });
-
-  } catch (err) {
-    return NextResponse.json(
-      { error: "server_error", detail: err.message },
-      { status: 500 }
-    );
+  // Swing-specific override (HARD RULE)
+  if (result.regime === "NEUTRAL") {
+    result.allowed = false;
+    result.reason = "DAILY_NOT_ALIGNED";
   }
+
+  return Response.json(result);
 }
