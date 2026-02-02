@@ -1,8 +1,8 @@
 // pages/api/structural-certainty/swing-scanner.js
 
-/* ======================================================
-   UTILITIES
-====================================================== */
+/* =========================
+   HELPERS
+========================= */
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -12,9 +12,9 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/* ======================================================
+/* =========================
    ELIGIBILITY
-====================================================== */
+========================= */
 
 function isBullishEligible(d) {
   return (
@@ -32,36 +32,30 @@ function isBearishEligible(d) {
   );
 }
 
-/* ======================================================
-   SCORING (0–100)
-====================================================== */
+/* =========================
+   SCORING
+========================= */
 
 function bullishScore(d) {
   let s = 0;
 
-  // Short covering pressure
   s += clamp(Math.abs(d.short_interest_change) * 300, 0, 30);
 
-  // Short volume
   if (d.short_volume_ratio < 0.45) s += 20;
 
-  // Borrow pressure
   if (d.borrow_rate >= 8) s += 15;
   else if (d.borrow_rate >= 4) s += 8;
 
-  // Options gravity
   if (d.options?.max_pain_distance_pct != null) {
     if (d.options.max_pain_distance_pct <= 2) s += 10;
     else if (d.options.max_pain_distance_pct <= 4) s += 5;
   }
 
-  // ITM skew
   if (d.options?.itm_call_put_ratio != null) {
     if (d.options.itm_call_put_ratio >= 1.2) s += 10;
     else if (d.options.itm_call_put_ratio >= 1.05) s += 5;
   }
 
-  // Regime boost
   if (d.regime === "ACCUMULATION") s += 15;
   else if (d.regime === "EXPANSION") s += 8;
 
@@ -71,38 +65,32 @@ function bullishScore(d) {
 function bearishScore(d) {
   let s = 0;
 
-  // Short reload pressure
   s += clamp(Math.abs(d.short_interest_change) * 300, 0, 30);
 
-  // Short volume
   if (d.short_volume_ratio > 0.55) s += 20;
 
-  // Borrow ease
   if (d.borrow_rate <= 5) s += 15;
   else if (d.borrow_rate <= 8) s += 8;
 
-  // Options gravity
   if (d.options?.max_pain_distance_pct != null) {
     if (d.options.max_pain_distance_pct <= 2) s += 10;
     else if (d.options.max_pain_distance_pct <= 4) s += 5;
   }
 
-  // ITM skew
   if (d.options?.itm_call_put_ratio != null) {
     if (d.options.itm_call_put_ratio <= 0.85) s += 10;
     else if (d.options.itm_call_put_ratio <= 0.95) s += 5;
   }
 
-  // Regime boost
   if (d.regime === "DISTRIBUTION") s += 15;
   else if (d.regime === "EXHAUSTION") s += 8;
 
   return clamp(Math.round(s), 0, 100);
 }
 
-/* ======================================================
-   LABELING
-====================================================== */
+/* =========================
+   LABELS
+========================= */
 
 function confidenceFromScore(score) {
   if (score >= 80) return "HIGH";
@@ -128,12 +116,12 @@ function bearishDriver(d) {
   return "LONG_UNWIND";
 }
 
-/* ======================================================
-   API HANDLER (ONLY EXPORT — TOP LEVEL)
-====================================================== */
+/* =========================
+   API HANDLER (ONLY EXPORT)
+========================= */
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
@@ -160,11 +148,61 @@ export default async function handler(req, res) {
     const maxBear = constraints.max_bearish ?? 5;
     const minConf = constraints.min_confidence ?? "MEDIUM";
 
-    const bulls = data.filter(isBullishEligible);
-    const bears = data.filter(isBearishEligible);
-
-    const scoredBulls = bulls
+    const bullish = data
+      .filter(isBullishEligible)
       .map(d => {
         const score = bullishScore(d);
         const confidence = confidenceFromScore(score);
-        if (confidence === "LOW" && minConf !== "LOW
+        if (confidence === "LOW" && minConf !== "LOW") return null;
+        return {
+          symbol: d.symbol,
+          score,
+          regime: d.regime,
+          pressure_driver: bullishDriver(d),
+          time_horizon_days: horizonFromScore(score),
+          confidence
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxBull)
+      .map((x, i) => ({ rank: i + 1, ...x }));
+
+    const bearish = data
+      .filter(isBearishEligible)
+      .map(d => {
+        const score = bearishScore(d);
+        const confidence = confidenceFromScore(score);
+        if (confidence === "LOW" && minConf !== "LOW") return null;
+        return {
+          symbol: d.symbol,
+          score,
+          regime: d.regime,
+          pressure_driver: bearishDriver(d),
+          time_horizon_days: horizonFromScore(score),
+          confidence
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxBear)
+      .map((x, i) => ({ rank: i + 1, ...x }));
+
+    return res.status(200).json({
+      scan_date,
+      universe,
+      bullish_swings: bullish,
+      bearish_swings: bearish,
+      notes: [
+        "Structural imbalance required for inclusion",
+        "Rank reflects forced resolution, not trend strength"
+      ]
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      error: "Swing scanner failed",
+      detail: err.message
+    });
+  }
+}
