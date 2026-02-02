@@ -1,4 +1,4 @@
-// pages/api/structural-certainty/swing-scanner.js
+// pages/api/structural-certainty/swing-scanner.jS
 
 /* =========================
    HELPERS
