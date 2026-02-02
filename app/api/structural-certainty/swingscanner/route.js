@@ -33,7 +33,8 @@ export async function POST(request) {
   for (const symbol of symbols) {
     try {
       const url =
-  `https://chartexchange.com/api/v1/data/options/chain-summary/` +
+ const url =
+  `https://chartexchange.com/api/v1/data/options/max-pain/` +
   `?symbol=${symbol}&format=json&api_key=${apiKey}`;
 
       const res = await fetch(url);
