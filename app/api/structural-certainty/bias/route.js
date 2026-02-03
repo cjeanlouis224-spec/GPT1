@@ -1,43 +1,24 @@
-import { NextResponse } from "next/server";
+export async function POST(req) {
+  const body = await req.json();
+  const symbol = body?.symbol;
 
-import { fetchChainSummary } from "../../../lib/fetchChainSummary";
-import { fetchExchangeVolume } from "../../../lib/fetchExchangeVolume";
-import { structuralCertaintyEngine } from "../../../lib/structuralCertaintyEngine";
-
-/**
- * GET /api/structural-certainty/bias?symbol=IWM
- * Returns directional bias ONLY
- */
-export async function GET(req) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const symbol = (searchParams.get("symbol") || "").toUpperCase();
-
-    if (!symbol) {
-      return NextResponse.json(
-        { error: "symbol query param required" },
-        { status: 400 }
-      );
-    }
-
-    const chain = await fetchChainSummary(symbol);
-    const volume = await fetchExchangeVolume(symbol);
-
-    const { bias, invalidation } =
-      structuralCertaintyEngine({ chain, volume });
-
-    return NextResponse.json({
-      symbol,
-      timeframe: "DAILY",
-      bias,
-      invalidation
-    });
-
-  } catch (err) {
-    console.error("Bias route error:", err);
+  if (!symbol) {
     return NextResponse.json(
-      { error: "Bias evaluation failed" },
-      { status: 500 }
+      { error: "symbol required" },
+      { status: 400 }
     );
   }
+
+  const chain = await fetchChainSummary(symbol.toUpperCase());
+  const volume = await fetchExchangeVolume(symbol.toUpperCase());
+
+  const { bias, invalidation } =
+    structuralCertaintyEngine({ chain, volume });
+
+  return NextResponse.json({
+    symbol: symbol.toUpperCase(),
+    timeframe: "DAILY",
+    bias,
+    invalidation
+  });
 }
