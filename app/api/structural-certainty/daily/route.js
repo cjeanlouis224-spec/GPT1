@@ -52,11 +52,11 @@ export async function POST(req) {
       });
 
       // Delegate ALL logic to engine
-      const engineResult = runStructuralCertainty({
-        symbol,
-        chainSummary,
-        context: "INTRADAY",
-      });
+      const engineResult = computeStructuralCertainty({
+  symbol,
+  chainSummary,
+  context: "INTRADAY",
+});
 
       // Attach hard proof markers
       engineResult.executionGate.data_source = "LIVE_CHARTEXCHANGE";
