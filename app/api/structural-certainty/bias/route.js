@@ -42,7 +42,7 @@ export async function GET(req) {
     // -----------------------------
     // Resolve expiration (REQUIRED by ChartExchange)
     // -----------------------------
-    const expirations = await fetchOptionExpirations(symbol, apiKey);
+    const expirations = await fetchOptionExpirations(symbol);
     const expiration = getNearestExpiration(expirations);
 
     if (!expiration) {
