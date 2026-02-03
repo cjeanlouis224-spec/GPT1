@@ -1,29 +1,110 @@
 import { NextResponse } from "next/server";
+import { fetchChainSummary } from "@/app/lib/fetchChainSummary";
+import { runStructuralCertainty } from "@/app/lib/structuralCertaintyEngine";
 
-const DEFAULT_SYMBOLS = ["SPY", "QQQ", "IWM"];
-
-// --- simple helpers ---
-function pctMove(a, b) {
-  if (!a || !b) return 0;
-  return Math.abs((a - b) / b);
-}
+const DEFAULT_SYMBOLS = ["QQQ", "SPY", "IWM"];
 
 export async function POST(req) {
   let symbols = DEFAULT_SYMBOLS;
 
+  // ─────────────────────────────────────────────
+  // Parse request body (optional symbols override)
+  // ─────────────────────────────────────────────
   try {
     const body = await req.json();
     if (Array.isArray(body?.symbols) && body.symbols.length > 0) {
       symbols = body.symbols;
     }
-  } catch (_) {}
+  } catch (_) {
+    // report / run → defaults apply
+  }
 
   const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
-  // ─────────────────────────────
-  // BASE SAFE RESPONSE (NO BIAS)
-  // ─────────────────────────────
-  const response = {
+  // ─────────────────────────────────────────────
+  // Hard guard: no API key = NO_TRADE (but still report)
+  // ─────────────────────────────────────────────
+  if (!apiKey) {
+    return NextResponse.json(
+      buildNoDataResponse(symbols, "NO_API_KEY")
+    );
+  }
+
+  const results = [];
+
+  // ─────────────────────────────────────────────
+  // MAIN LOOP — one symbol at a time
+  // ─────────────────────────────────────────────
+  for (const symbol of symbols) {
+    try {
+      // 🔴 PROOF LOG — must appear in Vercel
+      console.log("[DAILY] fetching chain summary for", symbol);
+
+      const chainSummary = await fetchChainSummary(symbol, apiKey);
+
+      if (!chainSummary) {
+        results.push(
+          buildNoDataSymbolResult(symbol, "CHAIN_SUMMARY_NULL")
+        );
+        continue;
+      }
+
+      // 🔴 PROOF LOG — confirms live data shape
+      console.log("[DAILY] live OI data", symbol, {
+        callsTotal: chainSummary.callsTotal,
+        putsTotal: chainSummary.putsTotal,
+        maxPain: chainSummary.maxPain,
+      });
+
+      // Delegate ALL logic to engine
+      const engineResult = runStructuralCertainty({
+        symbol,
+        chainSummary,
+        context: "INTRADAY",
+      });
+
+      // Attach hard proof markers
+      engineResult.executionGate.data_source = "LIVE_CHARTEXCHANGE";
+      engineResult.executionGate.data_timestamp =
+        new Date().toISOString();
+
+      results.push(engineResult);
+    } catch (err) {
+      console.error("[DAILY] ERROR", symbol, err);
+
+      results.push(
+        buildNoDataSymbolResult(symbol, "FETCH_ERROR")
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // REPORT FORMAT — list each symbol separately
+  // ─────────────────────────────────────────────
+  return NextResponse.json({
+    mode: "REPORT",
+    symbols,
+    results,
+  });
+}
+
+/* ───────────────────────────────────────────── */
+/* HELPERS                                      */
+/* ───────────────────────────────────────────── */
+
+function buildNoDataResponse(symbols, reason) {
+  return {
+    mode: "REPORT",
+    symbols,
+    results: symbols.map((s) =>
+      buildNoDataSymbolResult(s, reason)
+    ),
+  };
+}
+
+function buildNoDataSymbolResult(symbol, reason) {
+  return {
+    symbol,
     stressMap: {
       stress_side: "NEUTRAL",
       stress_location: "STRADDLED",
@@ -47,94 +128,7 @@ export async function POST(req) {
       allowed_setups: [],
       primary_risk: "Insufficient structural confirmation",
       final_instruction: "NO_TRADE",
+      data_source: reason,
     },
   };
-
-  if (!apiKey) {
-    return NextResponse.json(response);
-  }
-
-  try {
-    for (const symbol of symbols) {
-      // ───────── Tool 1: Stress (front expiry only) ─────────
-     const chainRes = await fetch(chainUrl, { cache: "no-store" });
-
-if (!chainRes.ok) {
-  throw new Error(`ChartExchange failed: ${chainRes.status}`);
-}
-
-const chain = await chainRes.json();
-const row = chain?.[0];
-
-const calls = Number(row?.callsTotal);
-const puts  = Number(row?.putsTotal);
-
-if (Number.isFinite(calls) || Number.isFinite(puts)) {
-  response.stressMap = {
-    stress_side:
-      puts > calls ? "PUT" :
-      calls > puts ? "CALL" :
-      "NEUTRAL",
-    stress_location: "STRADDLED",
-    distance_to_stress: "MID",
-    authority: "HIGH",
-  };
-
-  response.executionGate.data_source = "LIVE_CHARTEXCHANGE";
-  response.executionGate.data_debug = {
-    callsTotal: calls,
-    putsTotal: puts,
-    maxPain: row?.maxPain ?? null,
-  };
-} else {
-  response.executionGate.data_source = "LIVE_DATA_INVALID";
-}
-
-      // ───────── Tool 2: Open Resolution (price behavior) ─────────
-      const quoteUrl =
-        `https://chartexchange.com/api/v1/quotes/${symbol}?api_key=${apiKey}`;
-
-      const quoteRes = await fetch(quoteUrl, { cache: "no-store" });
-      if (!quoteRes.ok) continue;
-
-      const q = await quoteRes.json();
-      const last = q?.last;
-      const prevClose = q?.prevClose;
-      const open = q?.open;
-
-      const openMove = pctMove(open, prevClose);
-      const lastMove = pctMove(last, prevClose);
-
-      // --- classify ---
-      if (openMove > 0.003 && lastMove >= openMove) {
-        response.openResolution = {
-          open_state: "DISPLACING",
-          interaction_with_stress: "NO",
-          early_volatility: "EXPANDING",
-        };
-
-        response.riskPermission = {
-          permission: "RESTRICT",
-          size_cap: "MINIMAL",
-          hold_cap: "OPEN_ONLY",
-          blocked_behaviors: ["REVERSAL", "FADE", "HOLD"],
-        };
-
-        response.executionGate.primary_risk =
-          "Open displacement overriding structural stress";
-      } else if (openMove > 0.001) {
-        response.openResolution = {
-          open_state: "RESOLVING",
-          interaction_with_stress: "YES",
-          early_volatility: "NORMAL",
-        };
-
-        response.riskPermission.permission = "RESTRICT";
-      }
-    }
-
-    return NextResponse.json(response);
-  } catch (err) {
-    return NextResponse.json(response);
-  }
 }
