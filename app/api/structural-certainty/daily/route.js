@@ -4,33 +4,45 @@ import { fetchChainSummary } from "../../../lib/fetchChainSummary";
 import { fetchExchangeVolume } from "../../../lib/fetchExchangeVolume";
 import { structuralCertaintyEngine } from "../../../lib/structuralCertaintyEngine";
 
-export async function GET(req) {
+/**
+ * POST /api/structural-certainty/daily
+ * Body: { "symbols": ["IWM", "SPY", "QQQ"] }
+ */
+export async function POST(req) {
   try {
-    const { searchParams } = new URL(req.url);
-    const symbol = (searchParams.get("symbol") || "").toUpperCase();
+    const body = await req.json();
+    const symbols = body?.symbols;
 
-    if (!symbol) {
+    if (!Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json(
-        { error: "symbol required" },
+        { error: "symbols array required" },
         { status: 400 }
       );
     }
 
-    const chain = await fetchChainSummary(symbol);
-    const volume = await fetchExchangeVolume(symbol);
+    const results = {};
 
-    const result = structuralCertaintyEngine({ chain, volume });
+    for (const rawSymbol of symbols) {
+      const symbol = rawSymbol.toUpperCase();
 
-    return NextResponse.json({
-      symbol,
-      timeframe: "DAILY",
-      ...result
-    });
+      const chain = await fetchChainSummary(symbol);
+      const volume = await fetchExchangeVolume(symbol);
+
+      const result = structuralCertaintyEngine({ chain, volume });
+
+      results[symbol] = {
+        timeframe: "DAILY",
+        bias: result.bias,
+        invalidation: result.invalidation
+      };
+    }
+
+    return NextResponse.json(results);
 
   } catch (err) {
-    console.error("Daily route error:", err);
+    console.error("dailyCheck POST error:", err);
     return NextResponse.json(
-      { error: "Daily structural certainty failed" },
+      { error: err.message },
       { status: 500 }
     );
   }
