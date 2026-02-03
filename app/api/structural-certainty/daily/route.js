@@ -30,7 +30,7 @@ export async function POST(req) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Missing CHARTEXCHANGE_API_KEY env var" },
+        { error: "kgpkbt701a7d69thx302r55iyzetqdkn" },
         { status: 500 }
       );
     }
