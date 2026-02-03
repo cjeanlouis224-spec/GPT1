@@ -1,49 +1,178 @@
+// Structural Certainty Engine
+// v0.5 — 1-Week OI Anchored, Operator-First
+
 export function computeStructuralCertainty({
   symbol,
   chainSummary,
   mode = "DAILY"
 }) {
+  // -----------------------------
+  // HARD FAIL: No chain data
+  // -----------------------------
   if (!chainSummary) {
     return {
       symbol,
-      allowed: false,
-      reason: "NO_CHAIN_DATA"
+
+      stressMap: {
+        stress_side: "NEUTRAL",
+        stress_location: "STRADDLED",
+        distance_to_stress: "FAR",
+        authority: "LOW"
+      },
+
+      openResolution: {
+        open_state: "UNRESOLVED",
+        interaction_with_stress: "NO",
+        early_volatility: "NORMAL"
+      },
+
+      riskPermission: {
+        permission: "BLOCK",
+        size_cap: "MINIMAL",
+        hold_cap: "NONE",
+        blocked_behaviors: ["REVERSAL", "FADE", "HOLD"]
+      },
+
+      executionGate: {
+        daily_alignment: "UNKNOWN",
+        checklist_complete: "NO",
+        allowed_setups: [],
+        primary_risk: "No accessible one-week option chain",
+        final_instruction: "NO_TRADE",
+        data_source: "CHAIN_FETCH_FAILED"
+      }
     };
   }
 
+  // -----------------------------
+  // Extract OI + Volume
+  // -----------------------------
   const {
-    pc_ratio,
-    calls_total,
-    puts_total,
-    max_pain
+    callsTotal = 0,
+    putsTotal = 0,
+    callVolume = 0,
+    putVolume = 0
   } = chainSummary;
 
-  // ----- Regime -----
-  let regime = "NEUTRAL";
-  if (pc_ratio >= 1.8) regime = "BEAR_CONTROLLED";
-  else if (pc_ratio <= 0.7) regime = "BULL_CONTROLLED";
+  // Defensive guards
+  const hasCalls = callsTotal > 0;
+  const hasPuts  = putsTotal > 0;
 
-  // ----- Direction Gate -----
-  let direction = "NO_TRADE";
-  if (regime === "BEAR_CONTROLLED") direction = "SHORT_BIAS";
-  if (regime === "BULL_CONTROLLED") direction = "LONG_BIAS";
+  // -----------------------------
+  // Pressure Logic (Binary)
+  // -----------------------------
+  const putPressure  = hasPuts  && putVolume  > putsTotal;
+  const callPressure = hasCalls && callVolume > callsTotal;
 
-  // ----- Mode filter -----
-  let allowed = regime !== "NEUTRAL";
+  const putCovered  = hasPuts  && putsTotal  >= putVolume;
+  const callCovered = hasCalls && callsTotal >= callVolume;
 
-  if (mode === "SWING" && regime === "NEUTRAL") {
-    allowed = false;
+  // -----------------------------
+  // Direction Inference (1-week)
+  // -----------------------------
+  let directionalPressure = "MIXED";
+  let dominantSellers = "MIXED";
+
+  if (putPressure && callPressure) {
+    directionalPressure = "DOWN";
+    dominantSellers = "CALL";
+  } else if (putPressure && callCovered) {
+    directionalPressure = "UP";
+    dominantSellers = "PUT";
+  } else if (putCovered && callCovered) {
+    directionalPressure = "UP";
+    dominantSellers = "PUT";
   }
 
+  // -----------------------------
+  // Authority Determination
+  // -----------------------------
+  let authority = "MEDIUM";
+
+  if (!hasCalls && !hasPuts) {
+    authority = "LOW";
+  }
+
+  // -----------------------------
+  // Risk Permission Mapping
+  // -----------------------------
+  let permission = "LIMITED";
+  let sizeCap = "REDUCED";
+  let holdCap = "INTRADAY";
+  let finalInstruction = "WAIT";
+
+  if (authority === "LOW" && directionalPressure === "MIXED") {
+    permission = "LIMITED";
+    sizeCap = "REDUCED";
+    holdCap = "INTRADAY";
+    finalInstruction = "WAIT";
+  }
+
+  if (authority === "MEDIUM" && directionalPressure !== "MIXED") {
+    permission = "ALLOW";
+    sizeCap = "REDUCED";
+    holdCap = "INTRADAY";
+    finalInstruction =
+      directionalPressure === "UP"
+        ? "BUY_CALLS_STRUCTURAL"
+        : "BUY_PUTS_STRUCTURAL";
+  }
+
+  // -----------------------------
+  // Final Report
+  // -----------------------------
   return {
     symbol,
-    mode,
-    regime,
-    direction,
-    pc_ratio,
-    calls_total,
-    puts_total,
-    max_pain,
-    allowed
+
+    stressMap: {
+      stress_side:
+        directionalPressure === "UP"
+          ? "UP"
+          : directionalPressure === "DOWN"
+          ? "DOWN"
+          : "NEUTRAL",
+      stress_location: "STRADDLED",
+      distance_to_stress: "MID",
+      authority
+    },
+
+    openResolution: {
+      open_state: "UNRESOLVED",
+      interaction_with_stress: "NO",
+      early_volatility: "NORMAL"
+    },
+
+    riskPermission: {
+      permission,
+      size_cap: sizeCap,
+      hold_cap: holdCap,
+      blocked_behaviors:
+        permission === "ALLOW"
+          ? ["HOLD"]
+          : ["REVERSAL", "FADE", "HOLD"]
+    },
+
+    executionGate: {
+      daily_alignment:
+        directionalPressure === "MIXED" ? "MIXED" : "ALIGNED",
+      checklist_complete: "NO",
+      allowed_setups: [],
+      primary_risk:
+        directionalPressure === "MIXED"
+          ? "Two-sided pressure; forced moves unlikely"
+          : "Early positioning before dealer covering",
+      final_instruction: finalInstruction,
+      data_source: "CHAIN_SUMMARY"
+    },
+
+    oiContext: {
+      calls_oi: callsTotal,
+      puts_oi: putsTotal,
+      call_volume: callVolume,
+      put_volume: putVolume,
+      put_pressure: putPressure ? "YES" : "NO",
+      call_pressure: callPressure ? "YES" : "NO",
+      dominant_sellers: dominantSellers
+    }
   };
 }
