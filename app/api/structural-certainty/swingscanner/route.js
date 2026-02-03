@@ -1,59 +1,37 @@
 import { NextResponse } from "next/server";
 
-export async function POST(req) {
-  let symbol;
+import { fetchChainSummary } from "../../../lib/fetchChainSummary";
+import { fetchExchangeVolume } from "../../../lib/fetchExchangeVolume";
+import { structuralCertaintyEngine } from "../../../lib/structuralCertaintyEngine";
 
+export async function GET(req) {
   try {
-    const body = await req.json();
-    symbol = body?.symbol;
-  } catch (_) {}
+    const { searchParams } = new URL(req.url);
+    const symbol = (searchParams.get("symbol") || "").toUpperCase();
 
-  if (!symbol) {
-    return NextResponse.json({
-      status: "ERROR",
-      reason: "symbol_required",
-      swingAllowed: false,
-    });
-  }
-
-  // --- Call DAILY (authoritative) ---
-  const dailyRes = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL}/api/structural-certainty/daily`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: [symbol] }),
-      cache: "no-store",
+    if (!symbol) {
+      return NextResponse.json(
+        { error: "symbol required" },
+        { status: 400 }
+      );
     }
-  );
 
-  const daily = await dailyRes.json();
+    const chain = await fetchChainSummary(symbol);
+    const volume = await fetchExchangeVolume(symbol);
 
-  const bias = daily?.directionGate?.[symbol];
+    const result = structuralCertaintyEngine({ chain, volume });
 
-  if (!bias) {
     return NextResponse.json({
       symbol,
-      swingAllowed: false,
-      reason: "daily_alignment_missing",
-      status: "SWING_BLOCKED",
+      timeframe: "SWING",
+      ...result
     });
+
+  } catch (err) {
+    console.error("Swing route error:", err);
+    return NextResponse.json(
+      { error: "Swing structural certainty failed" },
+      { status: 500 }
+    );
   }
-
-  // --- Deterministic swing permission ---
-  const swingBias =
-    bias === "SHORT_BIAS_INTRADAY" ? "SHORT_SWING_ONLY" : "NO_SWING";
-
-  return NextResponse.json({
-    symbol,
-    dailyBias: bias,
-    swingBias,
-    executionWindow: "2–5 days",
-    preferredStructures: [
-      "Failed bounce into resistance",
-      "Put-side dominance with flat call OI",
-    ],
-    invalidation: "Strong trend reclaim against bias",
-    status: "SWING_ENABLED",
-  });
 }
