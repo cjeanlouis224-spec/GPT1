@@ -6,6 +6,7 @@ export async function resolveFrontMonthExpiration(symbol, apiKey) {
     `?underlying=US:${symbol}&format=json&api_key=${apiKey}`;
 
   const r = await fetch(url, { cache: "no-store" });
+
   if (!r.ok) {
     console.error("[EXPIRATIONS_HTTP_ERROR]", r.status);
     return null;
@@ -13,21 +14,34 @@ export async function resolveFrontMonthExpiration(symbol, apiKey) {
 
   const data = await r.json();
 
-  if (!Array.isArray(data) || data.length === 0) {
-    console.error("[EXPIRATIONS_EMPTY]", symbol);
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    console.error("[EXPIRATIONS_EMPTY_OR_INVALID]", data);
     return null;
   }
 
-  // Return the nearest future expiration
+  // Normalize expiration dates from multiple possible formats
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  const futureExpirations = data
-    .map(d => d.expiration)
+  const expirations = data
+    .map(item => {
+      if (typeof item === "string") return item;
+      if (item.expiration) return item.expiration;
+      if (item.expiration_date) return item.expiration_date;
+      if (item.date) return item.date;
+      return null;
+    })
     .filter(Boolean)
-    .filter(dateStr => new Date(dateStr) >= today)
-    .sort(
-      (a, b) => new Date(a).getTime() - new Date(b).getTime()
-    );
+    .filter(dateStr => {
+      const d = new Date(dateStr);
+      return !isNaN(d) && d >= today;
+    })
+    .sort((a, b) => new Date(a) - new Date(b));
 
-  return futureExpirations[0] ?? null;
+  if (expirations.length === 0) {
+    console.error("[EXPIRATIONS_NO_FUTURE_DATES]", data);
+    return null;
+  }
+
+  return expirations[0];
 }
