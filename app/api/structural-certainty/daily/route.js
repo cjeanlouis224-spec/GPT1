@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { fetchChainSummary } from "@/lib/fetchChainSummary";
-import { runStructuralCertainty } from "@/lib/structuralCertaintyEngine";
+export function computeStructuralCertainty({
+  symbol,
+  chainSummary,
+  mode = "DAILY"
+}) {
+  if (!chainSummary) {
+    return {
+      symbol,
+      allowed: false,
+      reason: "NO_CHAIN_DATA"
 
 function getNextFriday(date = new Date()) {
   const d = new Date(date);
@@ -51,12 +60,16 @@ export async function POST(req) {
         apiKey
       });
 
-      const report = runStructuralCertainty({
-        symbol,
-        expiration,
-        chainSummary
-      });
-
+     export function computeStructuralCertainty({
+  symbol,
+  chainSummary,
+  mode = "DAILY"
+}) {
+  if (!chainSummary) {
+    return {
+      symbol,
+      allowed: false,
+      reason: "NO_CHAIN_DATA"
       results.push(report);
     }
 
