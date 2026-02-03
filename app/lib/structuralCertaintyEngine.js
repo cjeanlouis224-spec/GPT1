@@ -65,8 +65,14 @@ const drivers = [];
 let confidence = 0;
 
 // Base confidence from PC ratio alone
-if (pc_ratio >= 1.6 || pc_ratio <= 0.65) {
-  confidence += Math.min(40, Math.abs(pc_ratio - 1) * 20);
+if (pc_ratio >= 1.6) {
+  confidence += Math.min(40, (pc_ratio - 1) * 20);
+  drivers.push("heavy_put_dominance");
+}
+
+if (pc_ratio <= 0.65) {
+  confidence += Math.min(40, (1 - pc_ratio) * 20);
+  drivers.push("heavy_call_dominance");
 }
 
 // Flow imbalance (if totals exist)
