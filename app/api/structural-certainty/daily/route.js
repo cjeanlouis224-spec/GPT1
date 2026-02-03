@@ -10,6 +10,9 @@ import { structuralCertaintyEngine } from "../../../lib/structuralCertaintyEngin
  */
 export async function POST(req) {
   try {
+    // -----------------------------
+    // Parse request body
+    // -----------------------------
     const body = await req.json();
     const symbols = body?.symbols;
 
@@ -20,72 +23,56 @@ export async function POST(req) {
       );
     }
 
+    // -----------------------------
+    // ENV VAR CHECK (PUT IT HERE)
+    // -----------------------------
+    const apiKey = process.env.CHARTEXCHANGE_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "Missing CHARTEXCHANGE_API_KEY env var" },
+        { status: 500 }
+      );
+    }
+
     const results = {};
 
+    // -----------------------------
+    // Per-symbol processing
+    // -----------------------------
     for (const rawSymbol of symbols) {
-  const symbol = rawSymbol.toUpperCase();
+      const symbol = rawSymbol.toUpperCase();
 
-  let chain, volume;
-
-  try {
-    chain = await fetchChainSummary(symbol);
-  } catch (e) {
-    return NextResponse.json(
-      { error: "fetchChainSummary failed", symbol, detail: e.message },
-      { status: 500 }
-    );
-  }
-
-  try {
-    volume = await fetchExchangeVolume(symbol);
-  } catch (e) {
-    return NextResponse.json(
-      { error: "fetchExchangeVolume failed", symbol, detail: e.message },
-      { status: 500 }
-    );
-  }
-
-  if (!chain) {
-    return NextResponse.json(
-      { error: "chain data missing", symbol },
-      { status: 500 }
-    );
-  }
-
-  if (!volume) {
-    return NextResponse.json(
-      { error: "volume data missing", symbol },
-      { status: 500 }
-    );
-  }
-
-  let result;
-  try {
-    result = structuralCertaintyEngine({ chain, volume });
-  } catch (e) {
-    return NextResponse.json(
-      {
-        error: "engine failure",
+      // ---- Fetch normalized inputs ----
+      const chain = await fetchChainSummary(
         symbol,
-        detail: e.message,
-        chainKeys: Object.keys(chain || {}),
-        volumeKeys: Object.keys(volume || {})
-      },
-      { status: 500 }
-    );
-  }
+        undefined, // DAILY does not depend on expiration
+        apiKey
+      );
 
-  results[symbol] = {
-    timeframe: "DAILY",
-    bias: result.bias,
-    invalidation: result.invalidation
-  };
-}
+      const volume = await fetchExchangeVolume(
+        symbol,
+        apiKey
+      );
 
+      // ---- Run engine ----
+      const result = structuralCertaintyEngine({ chain, volume });
+
+      results[symbol] = {
+        timeframe: "DAILY",
+        bias: result.bias,
+        invalidation: result.invalidation
+      };
+    }
+
+    // -----------------------------
+    // Return batch result
+    // -----------------------------
     return NextResponse.json(results);
 
   } catch (err) {
     console.error("dailyCheck POST error:", err);
+
     return NextResponse.json(
       { error: err.message },
       { status: 500 }
