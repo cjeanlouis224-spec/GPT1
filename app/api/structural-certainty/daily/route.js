@@ -1,75 +1,48 @@
 import { NextResponse } from "next/server";
-import { fetchChainSummary } from "@/lib/fetchChainSummary";
-export function computeStructuralCertainty({
-  symbol,
-  chainSummary,
-  mode = "DAILY"
-}) {
-  if (!chainSummary) {
-    return {
-      symbol,
-      allowed: false,
-      reason: "NO_CHAIN_DATA"
+import { fetchChainSummary } from "../../../lib/fetchChainSummary";
+import { computeStructuralCertainty } from "../../../lib/structuralCertaintyEngine";
 
+// ---------- Expiration resolver (weekly + holiday-safe stub) ----------
 function getNextFriday(date = new Date()) {
   const d = new Date(date);
-  const day = d.getDay();
+  const day = d.getDay(); // 0=Sun ... 5=Fri
   const diff = (5 - day + 7) % 7 || 7;
   d.setDate(d.getDate() + diff);
   return d.toISOString().slice(0, 10);
 }
 
+// ---------- Route ----------
 export async function POST(req) {
   try {
-    const { symbols } = await req.json();
+    const body = await req.json();
+    const symbols = Array.isArray(body?.symbols)
+      ? body.symbols
+      : ["SPY", "QQQ", "IWM"];
 
-    if (!symbols || !Array.isArray(symbols)) {
-      return NextResponse.json(
-        { error: "symbols array required" },
-        { status: 400 }
-      );
-    }
-
-    const expiration = getNextFriday();
-
-   for (const symbol of symbols) {
-  const expiration = getTargetExpiration();
-
-  console.log("[DAILY_CHAIN_REQUEST]", {
-    symbol,
-    underlying: `US:${symbol}`,
-    expiration,
-  });
-
-  const chainSummary = await fetchChainSummary(
-    symbol,
-    expiration,
-    process.env.CHARTEXCHANGE_API_KEY
-  );
-
-  // continue with structural logic…
-}
     const apiKey = process.env.CHARTEXCHANGE_API_KEY;
+    const expiration = getNextFriday();
 
     const results = [];
 
     for (const symbol of symbols) {
-      const chainSummary = await fetchChainSummary({
+      console.log("[DAILY_CHAIN_REQUEST]", {
+        symbol,
+        underlying: `US:${symbol}`,
+        expiration
+      });
+
+      const chainSummary = await fetchChainSummary(
         symbol,
         expiration,
         apiKey
+      );
+
+      const report = computeStructuralCertainty({
+        symbol,
+        chainSummary,
+        mode: "DAILY"
       });
 
-     export function computeStructuralCertainty({
-  symbol,
-  chainSummary,
-  mode = "DAILY"
-}) {
-  if (!chainSummary) {
-    return {
-      symbol,
-      allowed: false,
-      reason: "NO_CHAIN_DATA"
       results.push(report);
     }
 
