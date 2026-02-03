@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { fetchChainSummary } from "@/app/lib/fetchChainSummary";
-import { runStructuralCertainty } from "@/app/lib/structuralCertaintyEngine";
-
+import { fetchChainSummary } from "../../../lib/fetchChainSummary";
+import { runStructuralCertainty } from "../../../lib/structuralCertaintyEngine";
 const DEFAULT_SYMBOLS = ["QQQ", "SPY", "IWM"];
 
 export async function POST(req) {
