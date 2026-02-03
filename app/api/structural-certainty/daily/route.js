@@ -23,11 +23,23 @@ export async function POST(req) {
 
     const expiration = getNextFriday();
 
-    console.log("[DAILY_CHAIN_REQUEST]", {
-  symbol,
-  underlying: `US:${symbol}`,
-  expiration,
-});
+   for (const symbol of symbols) {
+  const expiration = getTargetExpiration();
+
+  console.log("[DAILY_CHAIN_REQUEST]", {
+    symbol,
+    underlying: `US:${symbol}`,
+    expiration,
+  });
+
+  const chainSummary = await fetchChainSummary(
+    symbol,
+    expiration,
+    process.env.CHARTEXCHANGE_API_KEY
+  );
+
+  // continue with structural logic…
+}
     const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
     const results = [];
