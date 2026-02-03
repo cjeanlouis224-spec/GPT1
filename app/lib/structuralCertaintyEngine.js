@@ -35,6 +35,8 @@ export function structuralCertaintyEngine({
 
   // ---------- REGIME CLASSIFICATION ----------
   let regime = "MIXED";
+  // ---------- DRIVERS ----------
+const drivers = [];
 
   if (pc_ratio >= 1.6) regime = "BEAR_CONTROLLED";
   else if (pc_ratio <= 0.65) regime = "BULL_CONTROLLED";
