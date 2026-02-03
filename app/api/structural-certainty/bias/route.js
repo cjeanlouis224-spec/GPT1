@@ -9,12 +9,17 @@ export async function POST(req) {
     );
   }
 
-  const chain = await fetchChainSummary(symbol.toUpperCase());
-  const volume = await fetchExchangeVolume(symbol.toUpperCase());
+  const apiKey = process.env.kgpkbt701a7d69thx302r55iyzetqdkn;
 
-  const { bias, invalidation } =
-    structuralCertaintyEngine({ chain, volume });
+if (!apiKey) {
+  return NextResponse.json(
+    { error: "Missing CHARTEXCHANGE_API_KEY env var" },
+    { status: 500 }
+  );
+}
 
+const chain = await fetchChainSummary(symbol, undefined, apiKey);
+const volume = await fetchExchangeVolume(symbol, apiKey);
   return NextResponse.json({
     symbol: symbol.toUpperCase(),
     timeframe: "DAILY",
