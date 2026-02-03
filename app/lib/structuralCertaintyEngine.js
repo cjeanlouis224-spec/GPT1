@@ -62,22 +62,32 @@ export function structuralCertaintyEngine({ chain, volume }) {
   // -----------------------------
   // Confidence score (0–1)
   // -----------------------------
-  const oiStrength =
-    Math.abs(totalCallOI - totalPutOI) / (totalCallOI + totalPutOI);
+ const oiDenom = totalCallOI + totalPutOI;
+const oiStrength =
+  oiDenom > 0
+    ? Math.abs(totalCallOI - totalPutOI) / oiDenom
+    : 0;
 
-  const volumeStrength =
-    Math.min(1, todayVolume / avg20Volume);
+const volumeStrength =
+  avg20Volume > 0
+    ? Math.min(1, todayVolume / avg20Volume)
+    : 0;
 
-  const dealerAlignment =
-    (direction === "LONG_ONLY" && positiveDealer) ||
-    (direction === "SHORT_ONLY" && negativeDealer)
-      ? 1
-      : 0.5;
+const dealerAlignment =
+  direction === "LONG_ONLY"
+    ? (positiveDealer ? 1 : 0)
+    : direction === "SHORT_ONLY"
+    ? (negativeDealer ? 1 : 0)
+    : 0;
 
-  const confidence =
-    0.4 * oiStrength +
-    0.3 * volumeStrength +
-    0.3 * dealerAlignment;
+const rawConfidence =
+  0.4 * oiStrength +
+  0.3 * volumeStrength +
+  0.3 * dealerAlignment;
+
+const confidence = Number(
+  (Number.isFinite(rawConfidence) ? rawConfidence : 0).toFixed(2)
+);
 
   return {
     regime: volumeExpansion ? "TREND" : "RANGE",
