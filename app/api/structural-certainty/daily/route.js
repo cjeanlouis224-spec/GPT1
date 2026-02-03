@@ -22,6 +22,12 @@ export async function POST(req) {
     }
 
     const expiration = getNextFriday();
+
+    console.log("[DAILY_CHAIN_REQUEST]", {
+  symbol,
+  underlying: `US:${symbol}`,
+  expiration,
+});
     const apiKey = process.env.CHARTEXCHANGE_API_KEY;
 
     const results = [];
