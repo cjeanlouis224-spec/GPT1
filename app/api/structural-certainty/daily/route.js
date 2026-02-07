@@ -23,11 +23,12 @@ export async function GET(req) {
       );
     }
 
-    // 🔑 NO expiration resolution
+    // --- Fetch data ---
     const chain = await fetchChainSummary(symbol, apiKey);
     const exchangeVolume = await fetchExchangeVolume(symbol, apiKey);
 
-    const result = structuralCertaintyEngine({
+    // ❗ FIX: engine is async → MUST await
+    const result = await structuralCertaintyEngine({
       symbol,
       chain,
       exchangeVolume
